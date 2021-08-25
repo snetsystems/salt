@@ -58,11 +58,14 @@ from salt.exceptions import CommandExecutionError, SaltInvocationError
 from salt.ext import six
 from salt.ext.six.moves import map
 
+log = logging.getLogger(__name__)
+
 # Import third party libs
 try:
     # pylint: disable=unused-import
     import boto
     import boto.ec2
+    from botocore.exceptions import ClientError
 
     # pylint: enable=unused-import
     from boto.ec2.blockdevicemapping import BlockDeviceMapping, BlockDeviceType
@@ -71,12 +74,21 @@ try:
         NetworkInterfaceCollection,
     )
 
+    logging.getLogger("boto").setLevel(logging.CRITICAL)
+
     HAS_BOTO = True
 except ImportError:
     HAS_BOTO = False
 
+try:
+    # pylint: disable=unused-import
+    import boto3
 
-log = logging.getLogger(__name__)
+    # pylint: enable=unused-import
+    logging.getLogger("boto3").setLevel(logging.CRITICAL)
+    HAS_BOTO3 = True
+except ImportError:
+    HAS_BOTO3 = False
 
 
 def __virtual__():
@@ -84,21 +96,22 @@ def __virtual__():
     Only load if boto libraries exist and if boto libraries are greater than
     a given version.
     """
-    # the boto_ec2 execution module relies on the connect_to_region() method
-    # which was added in boto 2.8.0
-    # https://github.com/boto/boto/commit/33ac26b416fbb48a60602542b4ce15dcc7029f12
-    has_boto_reqs = salt.utils.versions.check_boto_reqs(
-        boto_ver="2.8.0", check_boto3=False
-    )
-    if has_boto_reqs is True:
-        __utils__["boto.assign_funcs"](__name__, "ec2", pack=__salt__)
-    return has_boto_reqs
+
+    return salt.utils.versions.check_boto_reqs(boto_ver="2.8.0", boto3_ver="1.2.6")
 
 
 def __init__(opts):
     salt.utils.compat.pack_dunder(__name__)
     if HAS_BOTO:
-        __utils__["boto.assign_funcs"](__name__, "ec2")
+        __utils__["boto.assign_funcs"](__name__, "vpc", pack=__salt__)
+    if HAS_BOTO3:
+        __utils__["boto3.assign_funcs"](
+            __name__,
+            "ec2",
+            get_conn_funcname="_get_conn3",
+            cache_id_funcname="_cache_id3",
+            exactly_one_funcname=None
+        )
 
 
 def _get_all_eip_addresses(
@@ -639,6 +652,24 @@ def unassign_private_ip_addresses(
         return False
 
 
+def get_regions(region=None, key=None, keyid=None, profile=None):
+    """
+    Retrieves all regions/endpoints that work with EC2.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt myminion boto_ec2.get_regions
+    """
+    try:
+        conn = _get_conn3(region=region, key=key, keyid=keyid, profile=profile)
+        response = conn.describe_regions()
+        return [r['RegionName'] for r in response['Regions']]
+    except ClientError as e:
+        return {"error": __utils__["boto3.get_error"](e)}
+
+
 def get_zones(region=None, key=None, keyid=None, profile=None):
     """
     Get a list of AZs for the configured region.
@@ -649,9 +680,75 @@ def get_zones(region=None, key=None, keyid=None, profile=None):
 
         salt myminion boto_ec2.get_zones
     """
-    conn = _get_conn(region=region, key=key, keyid=keyid, profile=profile)
+    try:
+        conn = _get_conn3(region=region, key=key, keyid=keyid, profile=profile)
+        response = conn.describe_availability_zones()
+        return [z['ZoneName'] for z in response['AvailabilityZones']]
+    except ClientError as e:
+        return {"error": __utils__["boto3.get_error"](e)}
 
-    return [z.name for z in conn.get_all_zones()]
+
+def describe_instances(
+    region=None,
+    key=None,
+    keyid=None,
+    profile=None,
+    filters=[],
+    instance_ids=[],
+    dry_run=False,
+    max_results=50,
+    next_token=''
+):
+
+    """
+    Describes the specified instances or all instances.
+
+    If you specify instance IDs, the output includes information for only the specified instances. If you specify filters, the output includes information for only those instances that meet the filter criteria. If you do not specify instance IDs or filters, the output includes information for all instances, which can affect performance. We recommend that you use pagination to ensure that the operation returns quickly and successfully.
+
+    If you specify an instance ID that is not valid, an error is returned. If you specify an instance that you do not own, it is not included in the output.
+
+    Recently terminated instances might appear in the returned results. This interval is usually less than one hour.
+
+    If you describe instances in the rare case where an Availability Zone is experiencing a service disruption and you specify instance IDs that are in the affected zone, or do not specify any instance IDs at all, the call fails. If you describe instances and specify only instance IDs that are in an unaffected zone, the call works normally.
+
+    For more details for using the parameters, see `AWS's API documentation
+    <https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstances.html>`_ or `Boto3 API documentation
+    <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html?highlight=describe_regions#EC2.Client.describe_instances>`_.
+
+    .. note::
+    
+        The first index[0] returned is next_token. This is the token to request the next page of results. If the first index[0] is null, there is no more data.
+
+    CLI Examples:
+
+    .. code-block:: bash
+
+        salt myminion boto_ec2.describe_instances # Lists descriptions of all instances
+        salt myminion boto_ec2.describe_instances filters='[{Name: tag:Name, Values: [snet-NCU_Web_Server,snet-DB_Server]}]'
+        salt myminion boto_ec2.describe_instances instance_ids='[i-06b26a0c3fa37533a,i-04575c09b9272e51c]'
+
+    """
+    conn = _get_conn3(region=region, key=key, keyid=keyid, profile=profile)
+
+    try:
+        # Retrieves all regions/endpoints that work with EC2
+        if instance_ids:
+            response = conn.describe_instances(
+                Filters=filters,
+                InstanceIds=instance_ids,
+                DryRun=dry_run)
+        else:
+            response = conn.describe_instances(
+                Filters=filters,
+                InstanceIds=instance_ids,
+                DryRun=dry_run,
+                MaxResults=max_results,
+                NextToken=next_token)
+        out = [i for r in response.get('Reservations') for i in r.get('Instances')]
+        out.insert(0, response.get('NextToken'))
+        return out
+    except ClientError as e:
+        return {"error": __utils__["boto3.get_error"](e)}
 
 
 def find_instances(

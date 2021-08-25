@@ -292,16 +292,19 @@ def get_all_security_groups(
     Return a list of all Security Groups matching the given criteria and
     filters.
 
-    Note that the ``groupnames`` argument only functions correctly for EC2
-    Classic and default VPC Security Groups.  To find groups by name in other
-    VPCs you'll want to use the ``group-name`` filter instead.
+    .. note::
 
-    The valid keys for the ``filters`` argument can be found in `AWS's API
-    documentation
-    <https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeSecurityGroups.html>`_.
+        The ``groupnames`` argument only functions correctly for EC2
+        Classic and default VPC Security Groups.  To find groups by name in other
+        VPCs you'll want to use the ``group-name`` filter instead.
+
+    The valid keys for the ``filters`` argument can be found in `Boto EC2 SecurityGroup API
+    documentation(as the same function name)
+    <http://boto.cloudhackers.com/en/latest/ref/ec2.html#module-boto.ec2.securitygroup>`_.
 
     CLI example::
 
+        salt myminion boto_secgroup.get_all_security_groups group_ids='[sg-08d34bb2fa835f3dd,sg-0b7cbbeb155c5b8b9]'
         salt myminion boto_secgroup.get_all_security_groups filters='{group-name: mygroup}'
     """
     conn = _get_conn(region=region, key=key, keyid=keyid, profile=profile)
