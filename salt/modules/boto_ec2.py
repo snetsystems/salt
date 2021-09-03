@@ -688,16 +688,73 @@ def get_zones(region=None, key=None, keyid=None, profile=None):
         return {"error": __utils__["boto3.get_error"](e)}
 
 
-def describe_instances(
+def describe_instance_types(
+    instance_types=[],
+    filters=[],
+    dry_run=False,
+    max_results=50,
+    next_token='',
     region=None,
     key=None,
     keyid=None,
     profile=None,
-    filters=[],
+):
+
+    """
+    Returns a list of all instance types offered. The results can be filtered by location (Region or Availability Zone). If no location is specified, the instance types offered in the current Region are returned.
+
+    For more details for using the parameters, see `Boto3 API documentation
+    <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.describe_instance_types>`_.
+
+    .. note::
+    
+        The first index[0] returned is next_token. This is the token to request the next page of results. If the first index[0] is null, there is no more data.
+
+    CLI Examples:
+
+    .. code-block:: bash
+
+        salt myminion boto_ec2.describe_instance_types # Lists descriptions of all instance types
+        salt myminion boto_ec2.describe_instance_types instance_types='[t2.micro,c5.xlarge]'
+
+    """
+    conn = _get_conn3(region=region, key=key, keyid=keyid, profile=profile)
+
+    try:
+        # Retrieves all regions/endpoints that work with EC2
+        if instance_types:
+            response = conn.describe_instance_types(
+                InstanceTypes=instance_types,
+                Filters=filters,
+                DryRun=dry_run)
+        elif next_token == '':
+            response = conn.describe_instance_types(
+                Filters=filters,
+                DryRun=dry_run,
+                MaxResults=max_results)
+        else:
+            response = conn.describe_instance_types(
+                Filters=filters,
+                DryRun=dry_run,
+                MaxResults=max_results,
+                NextToken=next_token)
+        out = response.get('InstanceTypes')
+        out.insert(0, response.get('NextToken'))
+        return out
+    except ClientError as e:
+        return {"error": __utils__["boto3.get_error"](e)}
+
+
+def describe_instances(
     instance_ids=[],
+    filters=[],
     dry_run=False,
     max_results=50,
-    next_token=''
+    next_token='',
+    region=None,
+    key=None,
+    keyid=None,
+    profile=None,
 ):
 
     """
@@ -724,8 +781,8 @@ def describe_instances(
     .. code-block:: bash
 
         salt myminion boto_ec2.describe_instances # Lists descriptions of all instances
-        salt myminion boto_ec2.describe_instances filters='[{Name: tag:Name, Values: [snet-NCU_Web_Server,snet-DB_Server]}]'
         salt myminion boto_ec2.describe_instances instance_ids='[i-06b26a0c3fa37533a,i-04575c09b9272e51c]'
+        salt myminion boto_ec2.describe_instances filters='[{Name: tag:Name, Values: [snet-NCU_Web_Server,snet-DB_Server]}]'
 
     """
     conn = _get_conn3(region=region, key=key, keyid=keyid, profile=profile)
@@ -740,7 +797,6 @@ def describe_instances(
         else:
             response = conn.describe_instances(
                 Filters=filters,
-                InstanceIds=instance_ids,
                 DryRun=dry_run,
                 MaxResults=max_results,
                 NextToken=next_token)
@@ -2175,6 +2231,62 @@ def modify_network_interface_attribute(
     except boto.exception.EC2ResponseError as e:
         r["error"] = __utils__["boto.get_error"](e)
     return r
+
+
+def describe_volumes(
+    volume_ids=[],
+    filters=[],
+    dry_run=False,
+    max_results=50,
+    next_token='',
+    region=None,
+    key=None,
+    keyid=None,
+    profile=None,
+):
+
+    """
+    Describes the specified EBS volumes or all of your EBS volumes.
+
+    If you are describing a long list of volumes, we recommend that you paginate the output to make the list more manageable. The ``max_results`` parameter sets the maximum number of results returned in a single page. If the list of results exceeds your ``max_results`` value, then that number of results is returned along with a ``next_token`` value that can be passed to a subsequent ``describe_volumes`` request to retrieve the remaining results.
+
+    For more details for using the parameters, see `AWS's API documentation
+    <https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeVolumes.html>`_ or `Boto3 API documentation
+    <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#EC2.Client.describe_volumes>`_.
+
+    .. note::
+    
+        The first index[0] returned is next_token. This is the token to request the next page of results. If the first index[0] is null, there is no more data.
+
+    CLI Examples:
+
+    .. code-block:: bash
+
+        salt myminion boto_ec2.describe_volumes # Lists descriptions of all volumes
+        salt myminion boto_ec2.describe_volumes volume_ids='[vol-0f330f31b1bd13946,vol-0b14e39bd952176c8]'
+        salt myminion boto_ec2.describe_volumes filters='[{Name: tag:Name, Values: [snet-NCU_Web_Server,snet-DB_Server]}]'
+
+    """
+
+    conn = _get_conn3(region=region, key=key, keyid=keyid, profile=profile)
+
+    try:
+        if volume_ids:
+            response = conn.describe_volumes(
+                Filters=filters,
+                VolumeIds=volume_ids,
+                DryRun=dry_run)
+        else:
+            response = conn.describe_volumes(
+                Filters=filters,
+                DryRun=dry_run,
+                MaxResults=max_results,
+                NextToken=next_token)
+        out = response.get('Volumes')
+        out.insert(0, response.get('NextToken'))
+        return out
+    except ClientError as e:
+        return {"error": __utils__["boto3.get_error"](e)}
 
 
 def get_all_volumes(
