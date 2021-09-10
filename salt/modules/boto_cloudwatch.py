@@ -39,7 +39,7 @@ Connection module for Amazon CloudWatch
             key: askdjghsdfjkghWupUjasdflkdfklgjsdfjajkghs
             region: us-east-1
 
-:depends: boto
+:depends: boto, boto3
 """
 # keep lint from choking on _get_conn and _cache_id
 # pylint: disable=E0602
@@ -65,22 +65,42 @@ try:
     import boto.ec2.cloudwatch
     import boto.ec2.cloudwatch.listelement
     import boto.ec2.cloudwatch.dimension
+    from botocore.exceptions import ClientError
 
     logging.getLogger("boto").setLevel(logging.CRITICAL)
     HAS_BOTO = True
 except ImportError:
     HAS_BOTO = False
 
+try:
+    # pylint: disable=unused-import
+    import boto3
+
+    # pylint: enable=unused-import
+    logging.getLogger("boto3").setLevel(logging.CRITICAL)
+    HAS_BOTO3 = True
+except ImportError:
+    HAS_BOTO3 = False
+
 
 def __virtual__():
     """
-    Only load if boto libraries exist.
+    Only load if boto libraries exist and if boto libraries are greater than
+    a given version.
     """
-    has_boto_reqs = salt.utils.versions.check_boto_reqs(check_boto3=False)
+
+    has_boto_reqs = salt.utils.versions.check_boto_reqs(boto_ver="2.8.0", boto3_ver="1.2.6")
     if has_boto_reqs is True:
-        __utils__["boto.assign_funcs"](
-            __name__, "cloudwatch", module="ec2.cloudwatch", pack=__salt__
-        )
+        if HAS_BOTO:
+            __utils__["boto.assign_funcs"](__name__, "cloudwatch", module="ec2.cloudwatch", pack=__salt__)
+        if HAS_BOTO3:
+            __utils__["boto3.assign_funcs"](
+                __name__,
+                "cloudwatch",
+                get_conn_funcname="_get_conn3",
+                cache_id_funcname="_cache_id3"
+            )
+
     return has_boto_reqs
 
 
@@ -357,3 +377,87 @@ def _metric_alarm_to_dict(alarm):
         if hasattr(alarm, f):
             d[f] = getattr(alarm, f)
     return d
+
+
+def list_metrics(
+    namespace=None,
+    dimensions=[],
+    next_token=None,
+    region=None,
+    key=None,
+    keyid=None,
+    profile=None,
+):
+
+    """
+    List the specified metrics. You can use the returned metrics with `GetMetricData <https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_GetMetricData.html>`_ or `GetMetricStatistics <https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_GetMetricStatistics.html>`_ to obtain statistical data.
+
+    Up to 500 results are returned for any one call. To retrieve additional results, use the returned token with subsequent calls.
+
+    After you create a metric, allow up to 15 minutes before the metric appears. You can see statistics about the metric sooner by using GetMetricData or GetMetricStatistics .
+
+    See also: `Boto3 API documentation <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/cloudwatch.html#CloudWatch.Client.list_metrics>`_, `AWS's API documentation <https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_ListMetrics.html>`_.
+
+    .. note::
+    
+        The first index[0] returned is next_token. This is the token to request the next page of results. If the first index[0] is null, there is no more data.
+
+    CLI Examples:
+
+    .. code-block:: bash
+
+        salt myminion boto_cloudwatch.list_metrics # Retrieve the available namespaces list only.
+        salt myminion boto_cloudwatch.list_metrics namespace=AWS/EC2
+        salt myminion boto_cloudwatch.list_metrics namespace=AWS/EC2 dimensions='[{Name: InstanceId}]'
+        salt myminion boto_cloudwatch.list_metrics namespace=AWS/EC2 dimensions='[{Name: InstanceId, Value: i-01c872eb8ded1a221}]'
+
+    """
+    conn = _get_conn3(region=region, key=key, keyid=keyid, profile=profile)
+
+    try:
+        if next_token:
+            if namespace:
+                if dimensions:
+                    response = conn.list_metrics(
+                        Namespace=namespace,
+                        Dimensions=dimensions,
+                        NextToken=next_token)
+                else:
+                    response = conn.list_metrics(
+                        Namespace=namespace,
+                        NextToken=next_token)
+            else:
+                if dimensions:
+                    response = conn.list_metrics(
+                        Dimensions=dimensions,
+                        NextToken=next_token)
+                else:
+                    response = conn.list_metrics(
+                        NextToken=next_token)
+        else:
+            if namespace:
+                if dimensions:
+                    response = conn.list_metrics(
+                        Namespace=namespace,
+                        Dimensions=dimensions)
+                else:
+                    response = conn.list_metrics(
+                        Namespace=namespace)
+            else:
+                if dimensions:
+                    response = conn.list_metrics(
+                        Dimensions=dimensions)
+                else:
+                    response = conn.list_metrics()
+
+        if namespace:
+            out = response.get('Metrics')
+        else:
+            s = set([m.get('Namespace') for m in response.get('Metrics')])
+            out = list(s)
+
+        out.insert(0, response.get('NextToken'))
+
+        return out
+    except ClientError as e:
+        return {"error": __utils__["boto3.get_error"](e)}

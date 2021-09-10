@@ -37,7 +37,7 @@ as a passed in dict, or as a string to pull from pillars or minion config:
       key: askdjghsdfjkghWupUjasdflkdfklgjsdfjajkghs
       region: us-east-1
 
-:depends: boto
+:depends: boto, boto3
 
 """
 # keep lint from choking on _get_conn and _cache_id
@@ -97,21 +97,19 @@ def __virtual__():
     a given version.
     """
 
-    return salt.utils.versions.check_boto_reqs(boto_ver="2.8.0", boto3_ver="1.2.6")
+    has_boto_reqs = salt.utils.versions.check_boto_reqs(boto_ver="2.8.0", boto3_ver="1.2.6")
+    if has_boto_reqs is True:
+        if HAS_BOTO:
+            __utils__["boto.assign_funcs"](__name__, "ec2", pack=__salt__)
+        if HAS_BOTO3:
+            __utils__["boto3.assign_funcs"](
+                __name__,
+                "ec2",
+                get_conn_funcname="_get_conn3",
+                cache_id_funcname="_cache_id3"
+            )
 
-
-def __init__(opts):
-    salt.utils.compat.pack_dunder(__name__)
-    if HAS_BOTO:
-        __utils__["boto.assign_funcs"](__name__, "vpc", pack=__salt__)
-    if HAS_BOTO3:
-        __utils__["boto3.assign_funcs"](
-            __name__,
-            "ec2",
-            get_conn_funcname="_get_conn3",
-            cache_id_funcname="_cache_id3",
-            exactly_one_funcname=None
-        )
+    return has_boto_reqs
 
 
 def _get_all_eip_addresses(
@@ -693,7 +691,7 @@ def describe_instance_types(
     filters=[],
     dry_run=False,
     max_results=50,
-    next_token='',
+    next_token=None,
     region=None,
     key=None,
     keyid=None,
@@ -727,7 +725,7 @@ def describe_instance_types(
                 InstanceTypes=instance_types,
                 Filters=filters,
                 DryRun=dry_run)
-        elif next_token == '':
+        elif not next_token:
             response = conn.describe_instance_types(
                 Filters=filters,
                 DryRun=dry_run,
