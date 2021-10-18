@@ -11148,3 +11148,572 @@ def unregister_vm(
     salt.utils.vmware.unregister_vm(vm_ref)
     results["unregistered_vm"] = True
     return results
+
+@depends(HAS_PYVMOMI)
+@ignores_kwargs('credstore')
+def vsphere_info_all(host, username, password, protocol=None, port=None):
+    service_instance = salt.utils.vmware.get_service_instance(host=host,
+                                                              username=username,
+                                                              password=password,
+                                                              protocol=protocol,
+                                                              port=port)                                                                  
+  
+    content = service_instance.RetrieveContent()
+        
+    datacenter_properties = [
+            "name",
+    ]
+    
+    datacenter_list = get_datacenters(service_instance, datacenter_properties, content.rootFolder)    
+    
+    hw_grain_data = {}
+    
+    hw_grain_data['vcenter'] = host
+    
+    hw_grain_data['datacenters'] = []  
+    
+    for datacenter in datacenter_list:
+        datacenter_data = {}
+        
+        datacenter_data['name'] = datacenter['name']                                 
+        
+        totalDsCapacity = 0
+        totalFreeSpace = 0
+        
+        datacenterTotalCpu = 0
+        datacenterTotalMemory = 0
+        datacenterTotalCpuUsage = 0
+        datacenterTotalMemoryUsage = 0
+        
+        datacenterClusterCount = 0
+        datacenterHostCount = 0
+        datacenterVmCount = 0                                                                                            
+        
+        datastore_list = get_datastores(service_instance, datacenter['object'])  
+                      
+        datacenter_data['datastores'] = []
+        
+        for datastore in datastore_list:
+            datastore_data = {}         
+        
+            datastore_data['name'] = datastore['name']
+            datastore_data['capacity'] = datastore['summary.capacity']
+            datastore_data['space'] = datastore['summary.freeSpace'] 
+            datastore_data['type'] = datastore['summary.type']
+            datastore_data['mode'] = datastore['summary.maintenanceMode']
+                
+            totalDsCapacity += datastore['summary.capacity']
+            totalFreeSpace += datastore['summary.freeSpace']
+                    
+            datacenter_data['datastores'].append(datastore_data)
+            
+        datacenter_data['storage_capacity'] = totalDsCapacity
+        datacenter_data['storage_usage'] = totalDsCapacity - totalFreeSpace
+        datacenter_data['storage_space'] = totalFreeSpace  
+
+        cluster_list = get_clusters(service_instance, datacenter['object'])          
+        
+        datacenter_data['clusters'] = []
+        
+        for cluster in cluster_list:
+            cluster_data = {}
+            
+            clusterVmCount = 0
+        
+            cluster_data['name'] = cluster['name'] 
+            cluster_data['cpu_capacity'] = cluster['summary.totalCpu']*1000000
+            cluster_data['memory_capacity'] = cluster['summary.totalMemory']    
+            
+            datacenterTotalCpu += cluster['summary.totalCpu']*1000000
+            datacenterTotalMemory += cluster['summary.totalMemory'] 
+             
+            cluster_data['cpu_core'] = cluster['summary.numCpuCores']   
+            cluster_data['host_count'] = cluster['summary.numHosts']  
+            
+            datacenterHostCount += cluster_data['host_count']                           
+                                   
+            totalDsCapacity = 0
+            totalFreeSpace = 0    
+            
+            cluster_datastore_list = get_datastores(service_instance, cluster['object'])  
+                                          
+            cluster_data['datastores'] = []                    
+            
+            for clusterDsObj in cluster_datastore_list:
+                datastore_data = {}         
+        
+                datastore_data['name'] = clusterDsObj['name']
+                datastore_data['capacity'] = clusterDsObj['summary.capacity']
+                datastore_data['space'] = clusterDsObj['summary.freeSpace'] 
+                datastore_data['type'] = clusterDsObj['summary.type']
+                datastore_data['mode'] = clusterDsObj['summary.maintenanceMode']
+                
+                totalDsCapacity += clusterDsObj['summary.capacity']
+                totalFreeSpace += clusterDsObj['summary.freeSpace']
+                    
+                cluster_data['datastores'].append(datastore_data)
+                
+            cluster_data['storage_capacity'] = totalDsCapacity
+            cluster_data['storage_usage'] = totalDsCapacity - totalFreeSpace
+            cluster_data['storage_space'] = totalFreeSpace                                           
+            
+            host_list = get_hosts(service_instance, cluster['object'])
+            
+            cluster_data['hosts'] = []
+            
+            clusterTotalCpuUsage = 0
+            clusterTotalMemoryUsage = 0    
+        
+            for host in host_list:                
+                host_data = {}
+                
+                hostVmCount = 0
+                
+                host_data['name'] = host['name']
+                
+                host_data['powerState'] = host['runtime.powerState']
+                
+                host_data['vender'] = host['hardware.systemInfo.vendor']
+                host_data['model'] = host['hardware.systemInfo.model']
+                
+                if host['runtime.powerState'] == 'poweredOn':                
+                    overallCpuUsage = host['summary.quickStats.overallCpuUsage']*1000000
+                    overallMemoryUsage = host['summary.quickStats.overallMemoryUsage']*1048576
+                
+                    cpuCapacity = host['hardware.cpuInfo.hz'] * host['hardware.cpuInfo.numCpuCores']
+                    cpuSpace = cpuCapacity - overallCpuUsage
+                
+                    memorySize = host['hardware.memorySize']
+                    memorySpace = host['hardware.memorySize'] - overallMemoryUsage
+                                                       
+                    host_data['cpu_name'] = host['hardware.cpuPkg'][0].description
+                    host_data['cpu_core'] = host['hardware.cpuInfo.numCpuCores']
+                    host_data['cpu_capacity'] = cpuCapacity                                
+                    host_data['cpu_usage'] = overallCpuUsage                                
+                    host_data['cpu_space'] = cpuSpace
+                
+                    clusterTotalCpuUsage += overallCpuUsage
+                    
+                    host_data['memory_capacity'] = memorySize
+                    host_data['memory_usage'] = overallMemoryUsage
+                    host_data['memory_space'] = memorySpace
+                
+                    clusterTotalMemoryUsage += overallMemoryUsage
+                
+                    totalDsCapacity = 0
+                    totalFreeSpace = 0
+                             
+                    host_datastore_list = get_datastores(service_instance, host['object'])    
+                                          
+                    host_data['datastores'] = []                                
+            
+                    for hostDsObj in host_datastore_list:
+                        host_datastore_data = {}         
+        
+                        host_datastore_data['name'] = hostDsObj['name']
+                        host_datastore_data['capacity'] = hostDsObj['summary.capacity']
+                        host_datastore_data['space'] = hostDsObj['summary.freeSpace'] 
+                        host_datastore_data['type'] = hostDsObj['summary.type']
+                        host_datastore_data['mode'] = hostDsObj['summary.maintenanceMode']
+                    
+                        host_data['datastores'].append(host_datastore_data)
+                    
+                        totalDsCapacity += hostDsObj['summary.capacity']
+                        totalFreeSpace += hostDsObj['summary.freeSpace']                          
+                
+                        host_data['datastores'].append(host_datastore_data)        
+                    
+                    host_data['storage_capacity'] = totalDsCapacity
+                    host_data['storage_usage'] = totalDsCapacity - totalFreeSpace
+                    host_data['storage_space'] = totalFreeSpace  
+                    
+                    vm_list = get_vms(service_instance, host['object'])
+                
+                    host_data['vms'] = []
+        
+                    for vm in vm_list:
+                        if vm['summary.config.template'] == False:                        
+                            vm_data = {}
+                            
+                            if 'config.hardware.numCPU' in vm:
+                                vm_data['name'] = vm['name']
+                                vm_data['moid'] = vm['object']._moId
+                                vm_data['storage_usage'] = vm['summary.storage.committed']                    
+                                vm_data['os'] = vm['config.guestFullName']                    
+                                vm_data['guestId'] = vm['config.guestId']                    
+                                vm_data['cpu_usage'] = vm['summary.quickStats.overallCpuUsage']*1000000
+                                vm_data['memory_usage'] = vm['summary.quickStats.guestMemoryUsage']*1048576
+                                vm_data['vmPathName'] = vm['config.files.vmPathName']
+                                vm_data['power_state'] = vm['summary.runtime.powerState']
+                                vm_data['memoryMB'] = vm['config.hardware.memoryMB']
+                                vm_data['numCPU'] = vm['config.hardware.numCPU']
+                        
+                                if vm['guest.net']:
+                                    net = vm['guest.net']
+                                    for objNet in net:
+                                        if hasattr(objNet.ipConfig, 'ipAddress'):
+                                            ipAddress = objNet.ipConfig.ipAddress
+                                            for objAddr in ipAddress:
+                                                if objAddr.state == 'preferred':
+                                                    vm_data['ip_address'] = objAddr.ipAddress           
+                
+                                host_data['vms'].append(vm_data)
+                        
+                                hostVmCount += 1
+                
+                    host_data['vm_count'] = hostVmCount
+                
+                    clusterVmCount += hostVmCount
+                    
+                    cluster_data['hosts'].append(host_data)
+            
+            cluster_data['vm_count'] = clusterVmCount 
+            
+            datacenterVmCount += clusterVmCount
+            
+            cluster_data['cpu_usage'] = clusterTotalCpuUsage
+            cluster_data['memory_usage'] = clusterTotalMemoryUsage
+            
+            datacenterTotalCpuUsage += clusterTotalCpuUsage
+            datacenterTotalMemoryUsage += clusterTotalMemoryUsage
+                
+            datacenter_data['clusters'].append(cluster_data)
+            
+            datacenterClusterCount += 1
+        
+        datacenter_data['hosts'] = []
+
+        host_property_list = [
+            "name",
+            "parent",
+            "hardware.memorySize",
+            "hardware.cpuInfo.hz",
+            "hardware.cpuInfo.numCpuCores",
+            "hardware.systemInfo.vendor",
+            "hardware.systemInfo.model",
+            "hardware.cpuPkg",
+            "summary.quickStats.overallCpuUsage",
+            "summary.quickStats.overallMemoryUsage",
+            "runtime.powerState"
+        ]        
+      
+        host_list = salt.utils.vmware.get_mors_with_properties(
+            service_instance,
+            vim.HostSystem,
+            host_property_list,
+            container_ref=datacenter['object'],
+            traversal_spec=None,
+        )
+        
+        for host in host_list:  
+            host_data = {}                
+            hostVmCount = 0
+
+            if not isinstance(host["parent"], vim.ClusterComputeResource):                                
+                host_data['name'] = host['name'] 
+                
+                host_data['vender'] = host['hardware.systemInfo.vendor']
+                host_data['model'] = host['hardware.systemInfo.model']
+                
+                host_data['powerState'] = host['runtime.powerState']
+                
+                if host['runtime.powerState'] == 'poweredOn':                
+                    overallCpuUsage = host['summary.quickStats.overallCpuUsage']*1000000
+                    overallMemoryUsage = host['summary.quickStats.overallMemoryUsage']*1048576
+                
+                    cpuCapacity = host['hardware.cpuInfo.hz'] * host['hardware.cpuInfo.numCpuCores']
+                    cpuSpace = cpuCapacity - overallCpuUsage
+                
+                    memorySize = host['hardware.memorySize']
+                    memorySpace = host['hardware.memorySize'] - overallMemoryUsage                
+                                                       
+                    host_data['cpu_name'] = host['hardware.cpuPkg'][0].description
+                    host_data['cpu_core'] = host['hardware.cpuInfo.numCpuCores']
+                    host_data['cpu_capacity'] = cpuCapacity                                
+                    host_data['cpu_usage'] = overallCpuUsage                                
+                    host_data['cpu_space'] = cpuSpace
+                
+                    datacenterTotalCpu += cpuSpace
+                    datacenterTotalCpuUsage += overallCpuUsage
+
+                    host_data['memory_capacity'] = memorySize
+                    host_data['memory_usage'] = overallMemoryUsage
+                    host_data['memory_space'] = memorySpace
+                
+                    datacenterTotalMemory += memorySpace
+                    datacenterTotalMemoryUsage += overallMemoryUsage
+                
+                    totalDsCapacity = 0
+                    totalFreeSpace = 0
+                                                   
+                    host_datastore_list = get_datastores(service_instance, host['object'])    
+                                              
+                    host_data['datastores'] = []  
+
+                    for hostDsObj in host_datastore_list:
+                        host_datastore_data = {}         
+        
+                        host_datastore_data['name'] = hostDsObj['name']
+                        host_datastore_data['capacity'] = hostDsObj['summary.capacity']
+                        host_datastore_data['space'] = hostDsObj['summary.freeSpace'] 
+                        host_datastore_data['type'] = hostDsObj['summary.type']
+                        host_datastore_data['mode'] = hostDsObj['summary.maintenanceMode']
+                    
+                        host_data['datastores'].append(host_datastore_data)
+                    
+                        totalDsCapacity += hostDsObj['summary.capacity']
+                        totalFreeSpace += hostDsObj['summary.freeSpace']                          
+                
+                        host_data['datastores'].append(host_datastore_data)        
+                    
+                    host_data['storage_capacity'] = totalDsCapacity
+                    host_data['storage_usage'] = totalDsCapacity - totalFreeSpace
+                    host_data['storage_space'] = totalFreeSpace
+
+                    vm_list = get_vms(service_instance, host['object'])
+                
+                    host_data['vms'] = []
+        
+                    for vm in vm_list:
+                        if vm['summary.config.template'] == False:
+                            vm_data = {}
+                            
+                            if 'config.hardware.numCPU' in vm:
+                                vm_data['name'] = vm['name']
+                                vm_data['moid'] = vm['object']._moId
+                                vm_data['storage_usage'] = vm['summary.storage.committed']                    
+                                vm_data['os'] = vm['config.guestFullName']                    
+                                vm_data['guestId'] = vm['config.guestId']                    
+                                vm_data['cpu_usage'] = vm['summary.quickStats.overallCpuUsage']*1000000
+                                vm_data['memory_usage'] = vm['summary.quickStats.guestMemoryUsage']*1048576
+                                vm_data['vmPathName'] = vm['config.files.vmPathName']
+                                vm_data['power_state'] = vm['summary.runtime.powerState']
+                                vm_data['memoryMB'] = vm['config.hardware.memoryMB']
+                                vm_data['numCPU'] = vm['config.hardware.numCPU']
+                        
+                                if vm['guest.net']:
+                                    net = vm['guest.net']
+                                    for objNet in net:
+                                        if hasattr(objNet.ipConfig, 'ipAddress'):
+                                            ipAddress = objNet.ipConfig.ipAddress
+                                            for objAddr in ipAddress:
+                                                if objAddr.state == 'preferred':
+                                                    vm_data['ip_address'] = objAddr.ipAddress           
+                
+                                host_data['vms'].append(vm_data)
+                        
+                                hostVmCount += 1
+
+                    host_data['vm_count'] = hostVmCount
+
+                    datacenterVmCount += hostVmCount
+                    
+                    datacenter_data['hosts'].append(host_data)
+
+                    datacenterHostCount += 1                     
+
+
+        datacenter_data['cpu_space'] = datacenterTotalCpu
+        datacenter_data['memory_space'] = datacenterTotalMemory
+        datacenter_data['cpu_usage'] = datacenterTotalCpuUsage
+        datacenter_data['memory_usage'] = datacenterTotalMemoryUsage
+        
+        datacenter_data['cluster_count'] = datacenterClusterCount
+        datacenter_data['host_count'] = datacenterHostCount
+        datacenter_data['vm_count'] = datacenterVmCount
+        
+        hw_grain_data['datacenters'].append(datacenter_data)        
+    
+    return hw_grain_data      
+          
+    
+@depends(HAS_PYVMOMI)
+def get_datacenters(service_instance, property_list=None, container_ref=None):    
+    datacenter_list = salt.utils.vmware.get_mors_with_properties(
+        service_instance,
+        vim.Datacenter,
+        property_list,
+        container_ref=container_ref,
+        traversal_spec=None,
+    )
+    
+    return datacenter_list
+    
+    
+@depends(HAS_PYVMOMI)
+def get_clusters(service_instance, container_ref=None):    
+    property_list = [
+        "name",
+        "summary.totalCpu",
+        "summary.totalMemory",
+        "summary.numCpuCores",
+        "summary.numHosts",            
+    ]
+    
+    cluster_list = salt.utils.vmware.get_mors_with_properties(
+        service_instance,
+        vim.ClusterComputeResource,
+        property_list,
+        container_ref=container_ref,
+        traversal_spec=None,
+    )
+    
+    return cluster_list
+    
+    
+@depends(HAS_PYVMOMI)
+def get_hosts(service_instance, container_ref=None):    
+    property_list = [
+        "name",
+        "hardware.memorySize",
+        "hardware.cpuInfo.hz",
+        "hardware.cpuInfo.numCpuCores",
+        "hardware.systemInfo.vendor",
+        "hardware.systemInfo.model",
+        "hardware.cpuPkg",
+        "summary.quickStats.overallCpuUsage",
+        "summary.quickStats.overallMemoryUsage",
+        "runtime.powerState"
+    ]
+        
+    traversal_spec = vmodl.query.PropertyCollector.TraversalSpec(
+        name="cluster_host_traversal",
+        path="host",
+        skip=False,
+        type=vim.ComputeResource,
+    )
+      
+    host_list = salt.utils.vmware.get_mors_with_properties(
+        service_instance,
+        vim.HostSystem,
+        property_list,
+        container_ref=container_ref,
+        traversal_spec=traversal_spec,
+    )
+    
+    return host_list
+    
+    
+@depends(HAS_PYVMOMI)
+def get_datastores(service_instance, container_ref=None):
+    property_list = [
+        "name",
+        "summary.capacity",
+        "summary.freeSpace",
+        "summary.type",
+        "summary.maintenanceMode"
+    ]
+    
+    if isinstance(container_ref, vim.HostSystem):
+        # Create a different traversal spec for hosts because it looks like the
+        # default doesn't retrieve the datastores
+        traversal_spec = vmodl.query.PropertyCollector.TraversalSpec(
+            name="host_datastore_traversal",
+            path="datastore",
+            skip=False,
+            type=vim.HostSystem,
+        )
+    elif isinstance(container_ref, vim.ClusterComputeResource):
+        # Traversal spec for clusters
+        traversal_spec = vmodl.query.PropertyCollector.TraversalSpec(
+            name="cluster_datastore_traversal",
+            path="datastore",
+            skip=False,
+            type=vim.ClusterComputeResource,
+        )
+    elif isinstance(container_ref, vim.Datacenter):
+        # Traversal spec for datacenter
+        traversal_spec = vmodl.query.PropertyCollector.TraversalSpec(
+            name="datacenter_datastore_traversal",
+            path="datastore",
+            skip=False,
+            type=vim.Datacenter,
+        )
+    elif isinstance(container_ref, vim.StoragePod):
+        # Traversal spec for datastore clusters
+        traversal_spec = vmodl.query.PropertyCollector.TraversalSpec(
+            name="datastore_cluster_traversal",
+            path="childEntity",
+            skip=False,
+            type=vim.StoragePod,
+        )
+    elif (
+        isinstance(container_ref, vim.Folder)
+        and salt.utils.vmware.get_managed_object_name(container_ref) == "Datacenters"
+    ):   
+        # Traversal of root folder (doesn't support multiple levels of Folders)
+        traversal_spec = vmodl.query.PropertyCollector.TraversalSpec(
+            path="childEntity",
+            selectSet=[
+                vmodl.query.PropertyCollector.TraversalSpec(
+                    path="datastore", skip=False, type=vim.Datacenter
+                )
+            ],
+            skip=False,
+            type=vim.Folder,
+        )
+    else:
+        raise salt.exceptions.ArgumentValueError(
+            "Unsupported reference type '{0}'" "".format(container_ref.__class__.__name__)
+        )           
+    
+    datastore_list = salt.utils.vmware.get_mors_with_properties(
+        service_instance,
+        vim.Datastore,
+        property_list,
+        container_ref=container_ref,
+        traversal_spec=traversal_spec,
+    )
+    
+    return datastore_list
+    
+  
+@depends(HAS_PYVMOMI)    
+def get_vms (service_instance, container_ref):
+    property_list = [
+        "name",
+        "summary.storage.committed",
+        "summary.config.template",
+        "summary.quickStats.overallCpuUsage",
+        "summary.quickStats.guestMemoryUsage",
+        "summary.runtime.powerState",
+        "config.guestFullName",
+        "config.guestId",
+        "config.files.vmPathName",
+        "config.hardware.memoryMB",
+        "config.hardware.numCPU",
+        "guest.net",
+    ]
+            
+    traversal_spec = vmodl.query.PropertyCollector.TraversalSpec(
+        name="host_vm_traversal",
+        path="vm",
+        skip=False,
+        type=vim.HostSystem,
+    )
+            
+    vm_list = salt.utils.vmware.get_mors_with_properties(
+        service_instance,
+        vim.VirtualMachine,
+        property_list,
+        container_ref=container_ref,
+        traversal_spec=traversal_spec,
+    )
+    
+    return vm_list    
+    
+@depends(HAS_PYVMOMI)
+@ignores_kwargs('credstore')
+def get_ticket(host, username, password, protocol=None, port=None):
+    service_instance = salt.utils.vmware.get_service_instance(host=host,
+                                                              username=username,
+                                                              password=password,
+                                                              protocol=protocol,
+                                                              port=port)                                                              
+        
+    content = service_instance.RetrieveContent()
+    
+    session_manager = content.sessionManager
+    sessionTicket = session_manager.AcquireCloneTicket()
+    
+    return sessionTicket
