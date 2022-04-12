@@ -203,6 +203,13 @@ def _expand_item(item):
     """
     ret = {}
     ret.update(item.__dict__)
+    # Remove unserializable objects
+    if "driver" in ret:
+        del ret["driver"]
+    if "network" in ret:
+        del ret["network"]
+
+    log.debug(f"_expand_item: ret = {ret}")
     return ret
 
 
@@ -220,12 +227,13 @@ def _expand_node(node):
     ret["extra"]["zone"] = {}
     ret["extra"]["zone"].update(zone.__dict__)
 
-    # Remove unserializable GCENodeDriver objects
+    # Remove unserializable objects
     if "driver" in ret:
         del ret["driver"]
     if "driver" in ret["extra"]["zone"]:
         del ret["extra"]["zone"]["driver"]
 
+    log.debug(f"_expand_node: ret = {ret}")
     return ret
 
 
@@ -238,6 +246,16 @@ def _expand_disk(disk):
     zone = ret["extra"]["zone"]
     ret["extra"]["zone"] = {}
     ret["extra"]["zone"].update(zone.__dict__)
+
+    # Remove unserializable objects
+    if "driver" in ret:
+        del ret["driver"]
+    if "driver" in ret["extra"]["zone"]:
+        del ret["extra"]["zone"]["driver"]
+    if "licenses" in ret["extra"]:
+        del ret["extra"]["licenses"]
+
+    log.debug(f"_expand_disk: ret = {ret}")
     return ret
 
 
@@ -1000,6 +1018,31 @@ def show_fwrule(kwargs=None, call=None):
 
     conn = get_conn()
     return _expand_item(conn.ex_get_firewall(kwargs["name"]))
+
+
+def list_fwrules(call=None):
+    """
+    Get the list of an existing firewall rules.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt-cloud -f list_fwrules gce
+    """
+    if call != "function":
+        raise SaltCloudSystemExit(
+            "The list_fwrules function must be called with -f or --function."
+        )
+
+    conn = get_conn()
+
+    ret = {}
+    firewalls = conn.ex_list_firewalls()
+    for fw in firewalls:
+        ret[fw.name] = _expand_item(fw)
+
+    return ret
 
 
 def create_hc(kwargs=None, call=None):
