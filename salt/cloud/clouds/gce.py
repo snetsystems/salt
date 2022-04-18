@@ -1022,7 +1022,7 @@ def show_fwrule(kwargs=None, call=None):
 
 def list_fwrules(call=None):
     """
-    Get the list of an existing firewall rules.
+    Get a list of an existing firewall rules.
 
     CLI Example:
 
