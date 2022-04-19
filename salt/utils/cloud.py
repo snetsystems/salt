@@ -3416,15 +3416,16 @@ def check_key_path_and_mode(provider, key_path):
         )
         return False
 
-    key_mode = stat.S_IMODE(os.stat(key_path).st_mode)
-    if key_mode not in (0o400, 0o600):
-        log.error(
-            "The key file '%s' used in the '%s' provider configuration "
-            "needs to be set to mode 0400 or 0600.\n",
-            key_path,
-            provider,
-        )
-        return False
+    if not salt.utils.platform.is_windows():
+        key_mode = stat.S_IMODE(os.stat(key_path).st_mode)
+        if key_mode not in (0o400, 0o600):
+            log.error(
+                "The key file '%s' used in the '%s' provider configuration "
+                "needs to be set to mode 0400 or 0600.\n",
+                key_path,
+                provider,
+            )
+            return False
 
     return True
 
