@@ -323,6 +323,33 @@ def show_instance(vm_name, call=None):
     return node
 
 
+def list_instances(call=None):
+    """
+    Return a list of the VMs that are on the provider, with all fields.
+    Have to use with gce driver only.
+
+     CLI Example:
+
+    .. code-block:: bash
+
+        salt-cloud -f list_instances gce
+    """
+    if call == "action":
+        raise SaltCloudSystemExit(
+            "The list_instances function must be called with -f or --function."
+        )
+
+    conn = get_conn()  # pylint: disable=E0602
+
+    nodes = conn.list_nodes()
+    ret = {}
+    nodes = conn.list_nodes()
+    for node in nodes:
+        ret[node.name] = _expand_node(node)
+
+    return ret
+
+
 def avail_sizes(conn=None):
     """
     Return a dict of available instances sizes (a.k.a machine types) and
