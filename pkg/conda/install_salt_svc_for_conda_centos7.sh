@@ -1,6 +1,6 @@
 #!/bin/sh
 
-conda_install() {
+salt_install() {
     ### create logrotate.d
     echo "$PREFIX/var/log/salt/master {
     weekly
@@ -42,7 +42,7 @@ $PREFIX/var/log/salt/ssh {
     notifempty
 }" > /etc/logrotate.d/snet-salt
 
-    ### create salt  services
+    ### create salt services
     echo "[Unit]
 Description=The Salt Master Server of SnetSystems
 After=network.target
@@ -82,14 +82,53 @@ ExecStart=$PREFIX/bin/python $PREFIX/bin/salt-minion -c '$PREFIX/etc/salt'
 [Install]
 WantedBy=multi-user.target" > /usr/lib/systemd/system/snet-salt-minion.service
 
-    systemctl daemon-reload > /dev/null 2>&1
-    systemctl enable snet-salt-master snet-salt-api snet-salt-minion > /dev/null 2>&1
+    systemctl daemon-reload
+    systemctl enable snet-salt-master snet-salt-api snet-salt-minion
     echo "snet-salt-master snet-salt-api snet-salt-minion services are created and enabled"
-    printf "Do you want to start the 'snet-salt' services? [y/n]"
+    printf "Do you want to start whole 'snet-salt' services? [y/n]"
     read -r IS_START
     if [ "$IS_START" == "y" ]; then
         systemctl start snet-salt-master snet-salt-api snet-salt-minion
         systemctl status snet-salt-master snet-salt-api snet-salt-minion
+    fi
+
+    return 0
+}
+
+
+salt_minion_install() {
+    ### create logrotate.d
+    echo "$PREFIX/var/log/salt/minion {
+    weekly
+    missingok
+    rotate 5
+    compress
+    notifempty
+}" > /etc/logrotate.d/snet-salt
+
+    ### create salt  services
+    echo "[Unit]
+Description=The Salt Minion of SnetSystems
+After=network.target
+
+[Service]
+KillMode=process
+Type=notify
+NotifyAccess=all
+LimitNOFILE=8192
+ExecStart=$PREFIX/bin/python $PREFIX/bin/salt-minion -c '$PREFIX/etc/salt'
+
+[Install]
+WantedBy=multi-user.target" > /usr/lib/systemd/system/snet-salt-minion.service
+
+    systemctl daemon-reload #> /dev/null 2>&1
+    systemctl enable snet-salt-minion #> /dev/null 2>&1
+    echo "snet-salt-minion services are created and enabled"
+    printf "Do you want to start the 'snet-salt-minion' service? [y/n]"
+    read -r IS_START
+    if [ "$IS_START" == "y" ]; then
+        systemctl start snet-salt-minion #> /dev/null 2>&1
+        systemctl status snet-salt-minion #> /dev/null 2>&1
     fi
 
     return 0
@@ -119,4 +158,11 @@ while getopts "p:h" x; do
     esac
 done
 
-conda_install
+
+printf "Do you want to install salt-minion only? [y/n]"
+read -r IS_MINION_ONLY
+if [ "$IS_MINION_ONLY" == "y" ]; then
+    salt_minion_install
+else
+    salt_install
+fi
