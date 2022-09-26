@@ -218,6 +218,7 @@ import logging
 import os
 import pprint
 import socket
+import sys
 
 import salt.config as config
 
@@ -341,6 +342,26 @@ def get_conn():
     return conn
 
 
+def list_projects(conn=None, call=None):
+    """
+    Return a list of the informations of projects
+
+    CLI Example
+
+    .. code-block:: bash
+
+        salt-cloud -f list_projects myopenstack
+
+    """
+    if call == "action":
+        raise SaltCloudSystemExit(
+            "The list_projects function must be called with -f or --function."
+        )
+    if conn is None:
+        conn = get_conn()
+    return conn.list_projects()
+
+
 def list_nodes(conn=None, call=None):
     """
     Return a list of VMs
@@ -416,7 +437,7 @@ def _get_ips(node, addr_type="public"):
     return ret
 
 
-def list_nodes_full(conn=None, call=None):
+def list_nodes_full(conn=None, call=None, kwargs=None):
     """
     Return a list of VMs with all the information about them
 
@@ -424,7 +445,7 @@ def list_nodes_full(conn=None, call=None):
 
     .. code-block:: bash
 
-        salt-cloud -f list_nodes_full myopenstack
+        salt-cloud -f list_nodes_full myopenstack all_projects=[True|False]
 
     """
     if call == "action":
@@ -434,22 +455,35 @@ def list_nodes_full(conn=None, call=None):
     if conn is None:
         conn = get_conn()
     ret = {}
-    for node in conn.list_servers(detailed=True):
-        ret[node.name] = dict(node)
-        ret[node.name]["id"] = node.id
-        ret[node.name]["name"] = node.name
-        ret[node.name]["size"] = node.flavor.name
-        ret[node.name]["state"] = node.status
-        ret[node.name]["private_ips"] = _get_ips(node, "private")
-        ret[node.name]["public_ips"] = _get_ips(node, "public")
-        ret[node.name]["floating_ips"] = _get_ips(node, "floating")
-        ret[node.name]["fixed_ips"] = _get_ips(node, "fixed")
-        if isinstance(node.image, six.string_types):
-            ret[node.name]["image"] = node.image
-        else:
-            ret[node.name]["image"] = getattr(
-                conn.get_image(node.image.id), "name", node.image.id
-            )
+
+    projects = list_projects(conn)
+
+    is_all_projects = False if kwargs is None or (isinstance(kwargs, dict) and "all_projects" not in kwargs) else kwargs["all_projects"]
+    for node in conn.list_servers(detailed=True, all_projects=is_all_projects):
+        try:
+            ret[node.name] = dict(node)
+            ret[node.name]["id"] = node.id
+            ret[node.name]["name"] = node.name
+            ret[node.name]["size"] = node.flavor.name
+            ret[node.name]["state"] = node.status
+            ret[node.name]["private_ips"] = _get_ips(node, "private")
+            ret[node.name]["public_ips"] = _get_ips(node, "public")
+            ret[node.name]["floating_ips"] = _get_ips(node, "floating")
+            ret[node.name]["fixed_ips"] = _get_ips(node, "fixed")
+            for pj in projects:
+                if pj.id == node.location.project.id:
+                    ret[node.name]["location"]["project"]["name"] = pj.name
+                    ret[node.name]["location"]["project"]["domain_id"] = pj.domain_id
+            if isinstance(node.image, six.string_types):
+                ret[node.name]["image"] = node.image
+            else:
+                ret[node.name]["image"] = getattr(
+                    conn.get_image(node.image.id), "name", node.image.id
+                )
+        except AttributeError as e:
+            log.warning("Exception occured inside the function %s(): %s, then continue the next step", sys._getframe(0).f_code.co_name, e)
+            continue
+
     return ret
 
 
@@ -597,6 +631,29 @@ def list_subnets(conn=None, call=None, kwargs=None):
     if kwargs is None or (isinstance(kwargs, dict) and "network" not in kwargs):
         raise SaltCloudSystemExit("A `network` must be specified")
     return conn.list_subnets(filters={"network": kwargs["network"]})
+
+
+def get_compute_limits(conn=None, call=None, kwargs=None):
+    """
+    Return the limits of the project.
+
+    CLI Example
+
+    .. code-block:: bash
+
+        salt-cloud -f get_compute_limits myopenstack
+        salt-cloud -f get_compute_limits myopenstack project=myproj
+
+    """
+    if call == "action":
+        raise SaltCloudSystemExit(
+            "The get_compute_limits function must be called with -f or --function."
+        )
+    if conn is None:
+        conn = get_conn()
+
+    pj = None if kwargs is None or (isinstance(kwargs, dict) and "project" not in kwargs) else kwargs["project"]
+    return conn.get_compute_limits(pj)
 
 
 def _clean_create_kwargs(**kwargs):
