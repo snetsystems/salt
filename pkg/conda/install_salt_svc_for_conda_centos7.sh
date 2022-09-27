@@ -26,7 +26,15 @@ $PREFIX/var/log/salt/key {
     notifempty
 }
 
-$PREFIX/var/log/salt/cloud {
+$PREFIX/var/log/salt/api {
+    weekly
+    missingok
+    rotate 5
+    compress
+    notifempty
+}
+
+/var/log/salt/cloud {
     weekly
     missingok
     rotate 5
