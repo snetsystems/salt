@@ -458,7 +458,7 @@ def list_nodes_full(conn=None, call=None, kwargs=None):
 
     projects = list_projects(conn)
 
-    is_all_projects = False if kwargs is None or (isinstance(kwargs, dict) and "all_projects" not in kwargs) else kwargs["all_projects"]
+    is_all_projects = False if kwargs is None or (isinstance(kwargs, dict) and "all_projects" not in kwargs) or kwargs["all_projects"] == "False" else bool(kwargs["all_projects"])
     for node in conn.list_servers(detailed=True, all_projects=is_all_projects):
         try:
             ret[node.name] = dict(node)
