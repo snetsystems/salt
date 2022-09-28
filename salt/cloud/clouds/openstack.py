@@ -656,6 +656,52 @@ def get_compute_limits(conn=None, call=None, kwargs=None):
     return conn.get_compute_limits(pj)
 
 
+def get_volume_limits(conn=None, call=None, kwargs=None):
+    """
+    Return the limits of the volume.
+
+    CLI Example
+
+    .. code-block:: bash
+
+        salt-cloud -f get_volume_limits myopenstack
+        salt-cloud -f get_volume_limits myopenstack project=myproj
+
+    """
+    if call == "action":
+        raise SaltCloudSystemExit(
+            "The get_volume_limits function must be called with -f or --function."
+        )
+    if conn is None:
+        conn = get_conn()
+
+    pj = None if kwargs is None or (isinstance(kwargs, dict) and "project" not in kwargs) else kwargs["project"]
+    return conn.get_volume_limits(pj)
+
+
+def get_network_quotas(conn=None, call=None, kwargs=None):
+    """
+    Return the quotas of the network.
+
+    CLI Example
+
+    .. code-block:: bash
+
+        salt-cloud -f get_network_quotas myopenstack
+        salt-cloud -f get_network_quotas myopenstack project=myproj
+
+    """
+    if call == "action":
+        raise SaltCloudSystemExit(
+            "The get_network_quotas function must be called with -f or --function."
+        )
+    if conn is None:
+        conn = get_conn()
+
+    pj = None if kwargs is None or (isinstance(kwargs, dict) and "project" not in kwargs) else kwargs["project"]
+    return conn.get_network_quotas(pj, True)
+
+
 def _clean_create_kwargs(**kwargs):
     """
     Sanatize kwargs to be sent to create_server
