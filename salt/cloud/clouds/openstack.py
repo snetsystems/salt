@@ -952,7 +952,7 @@ def call(conn=None, call=None, kwargs=None):
     """
     Call function from shade.
 
-    func
+    endpoint_func
 
         function to call from shade.openstackcloud library
 
@@ -960,28 +960,28 @@ def call(conn=None, call=None, kwargs=None):
 
     .. code-block:: bash
 
-        salt-cloud -f call myopenstack func=list_images
-        t sujksalt-cloud -f call myopenstack func=create_network name=mysubnet
+        salt-cloud -f call myopenstack endpoint_func=list_images
+        salt-cloud -f call myopenstack endpoint_func=create_network name=mysubnet
     """
     if call == "action":
         raise SaltCloudSystemExit(
             "The call function must be called with " "-f or --function."
         )
 
-    if "func" not in kwargs:
-        raise SaltCloudSystemExit("No `func` argument passed")
+    if "endpoint_func" not in kwargs:
+        raise SaltCloudSystemExit("No `endpoint_func` argument passed")
 
     if conn is None:
         conn = get_conn()
 
-    func = kwargs.pop("func")
+    endpoint_func = kwargs.pop("endpoint_func")
     for key, value in kwargs.items():
         try:
             kwargs[key] = __utils__["json.loads"](value)
         except ValueError:
             continue
     try:
-        return getattr(conn, func)(**kwargs)
+        return getattr(conn, endpoint_func)(**kwargs)
     except shade.exc.OpenStackCloudException as exc:
-        log.error("Error running %s: %s", func, exc)
+        log.error("Error running %s: %s", endpoint_func, exc)
         raise SaltCloudSystemExit(six.text_type(exc))
