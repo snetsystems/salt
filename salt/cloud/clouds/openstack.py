@@ -445,7 +445,7 @@ def list_nodes_full(conn=None, call=None, kwargs=None):
 
     .. code-block:: bash
 
-        salt-cloud -f list_nodes_full myopenstack all_projects=[True|False]
+        salt-cloud -f list_nodes_full myopenstack all_projects=[True|False] project=myproj
 
     """
     if call == "action":
@@ -458,8 +458,16 @@ def list_nodes_full(conn=None, call=None, kwargs=None):
 
     projects = list_projects(conn)
 
+    project = None if kwargs is None or (isinstance(kwargs, dict) and "project" not in kwargs) else kwargs["project"]
+
+    params = {}
+
+    for pj in projects:
+        if pj.name == project:
+            params['project_id'] = pj.id
+
     is_all_projects = False if kwargs is None or (isinstance(kwargs, dict) and "all_projects" not in kwargs) or kwargs["all_projects"] == "False" else bool(kwargs["all_projects"])
-    for node in conn.list_servers(detailed=True, all_projects=is_all_projects):
+    for node in conn.list_servers(detailed=True, all_projects=is_all_projects, filters=params):
         try:
             ret[node.name] = dict(node)
             ret[node.name]["id"] = node.id
