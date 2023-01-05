@@ -983,9 +983,10 @@ def call(conn=None, call=None, kwargs=None):
         conn = get_conn()
 
     endpoint_func = kwargs.pop("endpoint_func")
+    kwargs = __utils__["args.clean_kwargs"](**kwargs)
     for key, value in kwargs.items():
         try:
-            kwargs[key] = __utils__["json.loads"](value)
+            kwargs[key] = __utils__["json.loads"](__utils__["json.dumps"](value))
         except ValueError:
             continue
     try:
