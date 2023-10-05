@@ -658,10 +658,17 @@ def get_sensor_data(**kwargs):
 
     with _IpmiCommand(**kwargs) as s:
         data = {}
+        cpuIndex = 0
         for reading in s.get_sensor_data():
             if reading:
                 r = ast.literal_eval(repr(reading))
-                data[r.pop("name")] = r
+                objKey = ""
+                if r["name"] == "Temp" and r["type"] == "Temperature":
+                    cpuIndex += 1
+                    objKey = "CPU{} {}".format(cpuIndex, r.pop("name"))
+                else:
+                    objKey = r.pop("name")
+                data[objKey] = r
     return data
 
 
